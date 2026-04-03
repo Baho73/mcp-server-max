@@ -10,7 +10,7 @@ Lets any MCP-compatible AI assistant (Claude, OpenClaw, etc.) send and read mess
 
 | Tool | Description |
 |------|-------------|
-| `send_message` | Send a text message (plain, markdown, or HTML) |
+| `send_message` | Send a message (text, markdown, HTML) with reply support |
 | `read_messages` | Read chat history (with time range and pagination) |
 | `list_chats` | List group chats the bot is a member of |
 | `get_chat_info` | Chat details — title, description, members count |
@@ -19,8 +19,11 @@ Lets any MCP-compatible AI assistant (Claude, OpenClaw, etc.) send and read mess
 | `delete_message` | Delete a message |
 | `pin_message` | Pin a message in a chat |
 | `unpin_message` | Unpin the pinned message |
+| `get_pinned_message` | Get the currently pinned message |
 | `leave_chat` | Leave a group chat |
 | `get_bot_info` | Get information about the bot |
+| `send_typing` | Send typing indicator |
+| `get_updates` | Get recent events via long polling |
 
 ## Installation
 

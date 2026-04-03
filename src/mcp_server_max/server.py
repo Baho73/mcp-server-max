@@ -4,13 +4,15 @@ MODULE_CONTRACT:
   SCOPE: stdio MCP server exposing Max platform-api.max.ru as MCP tools
   DEPENDS: mcp (Python SDK), httpx
   INPUTS: MCP tool calls via stdio (JSON-RPC)
-  OUTPUTS: Tool results — messages, chat lists, bot info
+  OUTPUTS: Tool results — messages, chat lists, bot info, updates
   LINKS: https://dev.max.ru/docs-api
   MODULE_MAP: main, serve, _send_message, _read_messages, _list_chats,
               _get_chat_info, _get_chat_members, _send_file, _edit_message,
-              _delete_message, _pin_message, _get_bot_info
+              _delete_message, _pin_message, _get_pinned_message, _get_bot_info,
+              _send_typing, _get_updates
   CHANGE_SUMMARY:
     - 0.1.0: Initial release — 11 tools for Max messenger interaction
+    - 0.2.0: Add get_pinned_message, send_typing, get_updates; enhance send_message with reply_to and format
 """
 
 # START_BLOCK_IMPORTS
@@ -74,14 +76,19 @@ async def _close_http() -> None:
 async def _api(method: str, path: str, **kwargs) -> dict:
     """Make an API call and return parsed JSON.
 
-    Raises RuntimeError on non-2xx responses.
+    Raises RuntimeError on non-2xx responses with detailed error info.
     """
     http = await _get_http()
     resp = await http.request(method, path, **kwargs)
     data = resp.json()
     if resp.status_code >= 400:
         error = data.get("message", data.get("error", str(data)))
-        raise RuntimeError(f"Max API {resp.status_code}: {error}")
+        code = data.get("code", "")
+        detail = f"Max API {resp.status_code}"
+        if code:
+            detail += f" [{code}]"
+        detail += f": {error}"
+        raise RuntimeError(detail)
     return data
 # END_BLOCK_CLIENT
 
@@ -100,7 +107,7 @@ def _error(msg: str) -> list[types.TextContent]:
 TOOLS = [
     types.Tool(
         name="send_message",
-        description="Send a text message to a Max chat or user.",
+        description="Send a text message to a Max chat or user. Supports markdown/html formatting and replies.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -120,6 +127,10 @@ TOOLS = [
                     "type": "string",
                     "enum": ["markdown", "html"],
                     "description": "Text format: 'markdown' or 'html' (default: plain text)",
+                },
+                "reply_to": {
+                    "type": "string",
+                    "description": "Message ID to reply to",
                 },
             },
             "required": ["text"],
@@ -283,6 +294,57 @@ TOOLS = [
             "required": ["chat_id"],
         },
     ),
+    types.Tool(
+        name="get_pinned_message",
+        description="Get the currently pinned message in a Max chat.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "chat_id": {
+                    "type": "integer",
+                    "description": "Chat ID",
+                },
+            },
+            "required": ["chat_id"],
+        },
+    ),
+    types.Tool(
+        name="send_typing",
+        description="Send a typing indicator to a Max chat. The indicator disappears after ~10 seconds or when a message is sent.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "chat_id": {
+                    "type": "integer",
+                    "description": "Chat ID",
+                },
+            },
+            "required": ["chat_id"],
+        },
+    ),
+    types.Tool(
+        name="get_updates",
+        description="Get recent events/updates via long polling. Returns new messages, edits, callbacks, etc.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of updates to return (default 100)",
+                    "default": 100,
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Long polling timeout in seconds (default 5, keep low to avoid blocking)",
+                    "default": 5,
+                },
+                "marker": {
+                    "type": "integer",
+                    "description": "Marker from previous response to get only new updates",
+                },
+            },
+        },
+    ),
 ]
 # END_BLOCK_TOOLS
 
@@ -324,6 +386,8 @@ async def _send_message(args: dict) -> list[types.TextContent]:
     body: dict = {"text": args["text"]}
     if "format" in args:
         body["format"] = args["format"]
+    if "reply_to" in args:
+        body["link"] = {"type": "reply", "mid": args["reply_to"]}
 
     data = await _api("POST", "/messages", params=params, json=body)
     return _ok(json.dumps(data, ensure_ascii=False))
@@ -406,6 +470,34 @@ async def _leave_chat(args: dict) -> list[types.TextContent]:
     return _ok(json.dumps({"status": "ok"}, ensure_ascii=False))
 
 
+async def _get_pinned_message(args: dict) -> list[types.TextContent]:
+    chat_id = args["chat_id"]
+    data = await _api("GET", f"/chats/{chat_id}/pin")
+    return _ok(json.dumps(data, ensure_ascii=False))
+
+
+async def _send_typing(args: dict) -> list[types.TextContent]:
+    chat_id = args["chat_id"]
+    body = {"action": "typing_on"}
+    data = await _api("POST", f"/chats/{chat_id}/actions", json=body)
+    return _ok(json.dumps({"status": "ok"}, ensure_ascii=False))
+
+
+async def _get_updates(args: dict) -> list[types.TextContent]:
+    params = {}
+    if "limit" in args:
+        params["limit"] = args["limit"]
+    if "timeout" in args:
+        params["timeout"] = args["timeout"]
+    else:
+        params["timeout"] = 5
+    if "marker" in args:
+        params["marker"] = args["marker"]
+
+    data = await _api("GET", "/updates", params=params)
+    return _ok(json.dumps(data, ensure_ascii=False))
+
+
 _HANDLERS = {
     "send_message": _send_message,
     "read_messages": _read_messages,
@@ -418,6 +510,9 @@ _HANDLERS = {
     "unpin_message": _unpin_message,
     "get_bot_info": _get_bot_info,
     "leave_chat": _leave_chat,
+    "get_pinned_message": _get_pinned_message,
+    "send_typing": _send_typing,
+    "get_updates": _get_updates,
 }
 # END_BLOCK_HANDLERS
 
