@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "mcp-server-max"
+name = "mcp-max-messenger"
 version = "0.1.0"
 description = "MCP server for Max messenger (formerly VK Teams) — send/read messages, manage chats via Model Context Protocol"
 readme = "README.md"
